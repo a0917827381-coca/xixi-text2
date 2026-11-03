@@ -2269,16 +2269,20 @@ function initSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     console.warn("此瀏覽器不支援 Web Speech API。");
-    $('bMic').textContent = '⚠️ 瀏覽器不支援語音';
-    $('bMic').disabled = true;
-    $('kb').hidden = false;
+    const mic = $('bMic');
+    if (mic) {
+      mic.textContent = '⚠️ 瀏覽器不支援語音';
+      mic.disabled = true;
+    }
+    const kb = $('kb');
+    if (kb) kb.hidden = false;
     return;
   }
 
   recognition = new SpeechRecognition();
   recognition.lang = 'en-US';
   recognition.interimResults = true;
-  recognition.continuous = true;
+  recognition.continuous = false; // 行動裝置設為 false 穩定度大幅提升
 
   recognition.onstart = () => {
     isListening = true;
@@ -2289,101 +2293,83 @@ function initSpeechRecognition() {
   };
 
   recognition.onresult = (event) => {
-    if(st.over || st.pending || !st.targetWord) return;
+    if (st.over || st.pending || !st.targetWord) return;
 
-    let interimTranscript = '';
-    let finalTranscript = '';
-
+    let transcript = '';
     for (let i = event.resultIndex; i < event.results.length; ++i) {
-      if (event.results[i].isFinal) {
-        finalTranscript += event.results[i][0].transcript;
-      } else {
-        interimTranscript += event.results[i][0].transcript;
-      }
+      transcript += event.results[i][0].transcript;
     }
 
-    const currentText = (interimTranscript || finalTranscript).trim().toLowerCase();
+    const currentText = transcript.trim().toLowerCase();
     if (!currentText) return;
-    
-    // 取得最後一個輸入的詞彙（避免累積長句）
+
     const words = currentText.split(/\s+/);
     const latestWord = words[words.length - 1];
 
-    console.log("辨識字串:", currentText, "最新詞彙:", latestWord);
-
     // 1. 攔截整字連讀
     if (latestWord === st.targetWord.toLowerCase() && st.targetWord.length > 1) {
-       say(`🔊 發音很標準喔！但請一個字母、一個字母拼出來！`, 'bad');
-       shake();
-       // 強制重啟辨識，清除暫存
-       restartRecognition();
-       return;
+      say(`🔊 發音很標準喔！但請一個字母、一個字母拼出來！`, 'bad');
+      shake();
+      restartRecognition();
+      return;
     }
 
-    // 2. 嚴格逐字判定 (One-Slot-Per-Beat)
+    // 2. 逐字判定
     if (st.slots.length < st.targetWord.length) {
       const nextTargetLetter = st.targetWord[st.slots.length].toLowerCase();
-      
-      // 嘗試從映射表轉換
       let recognizedLetter = PHONETIC_MAP[latestWord];
-      
-      // 如果映射表沒有，且剛好是單一字母，直接取用
-      if(!recognizedLetter && latestWord.length === 1 && latestWord.match(/[a-z]/)) {
-         recognizedLetter = latestWord;
+
+      if (!recognizedLetter && latestWord.length === 1 && latestWord.match(/[a-z]/)) {
+        recognizedLetter = latestWord;
       }
 
       if (recognizedLetter === nextTargetLetter) {
-         buyLetter(recognizedLetter.toUpperCase());
-         
-         // 若填滿且正確，關閉麥克風（在 submitWord 中處理）
-      } else if (recognizedLetter && recognizedLetter !== nextTargetLetter) {
-         // 簡單容錯與提示
-         console.log("聽到", recognizedLetter, "但預期是", nextTargetLetter);
+        buyLetter(recognizedLetter.toUpperCase());
       }
     }
   };
 
   recognition.onerror = (event) => {
-    console.error('Speech recognition error', event.error);
+    console.error('Speech recognition error:', event.error);
+    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+      say("⚠️ 麥克風權限被拒絕，請確認手機瀏覽器權限設定！", "bad");
+      isListening = false;
+    }
     stopRecognition();
   };
 
   recognition.onend = () => {
-    if(isListening) { // 意外中斷，嘗試重啟
-        recognition.start();
+    if (isListening) {
+      // 行動端必須給予緩衝時間，避免 InvalidStateError
+      setTimeout(() => {
+        if (isListening && !isSpeaking) {
+          try {
+            recognition.start();
+          } catch (e) {
+            console.warn("重啟略過:", e);
+          }
+        }
+      }, 300);
     } else {
-        $('bMic').classList.remove('active', 'jump-flash');
-        $('bMic').innerHTML = '🎙️ 點擊開始說話 (拼讀字母)';
-        $('bMic').style.background = '';
-        $('bMic').style.boxShadow = '0 4px 12px rgba(6, 214, 160, 0.4)';
+      $('bMic').classList.remove('active', 'jump-flash');
+      $('bMic').innerHTML = '🎙️ 點擊開始說話 (拼讀字母)';
+      $('bMic').style.background = '';
+      $('bMic').style.boxShadow = '0 4px 12px rgba(6, 214, 160, 0.4)';
     }
   };
 }
 
-let micPermissionGranted = false;
-async function startRecognition() {
-    if(isSpeaking) return say("請等語音播放完畢再說話", "bad"); // 防自己聽自己
-    
-    if(!micPermissionGranted) {
-        try {
-            // 僅在第一次點擊時強制要求麥克風權限
-            await navigator.mediaDevices.getUserMedia({ audio: true });
-            micPermissionGranted = true;
-        } catch(err) {
-            console.warn("麥克風權限被拒絕:", err);
-            $('bMic').textContent = '⚠️ 請開啟麥克風權限';
-            return say("⚠️ 麥克風權限被拒絕，請至瀏覽器設定中開啟！", "bad");
-        }
-    }
+function startRecognition() {
+  if (isSpeaking) return say("請等語音播放完畢再說話", "bad");
 
-    if(!recognition) initSpeechRecognition();
-    if(recognition && !isListening) {
-        try {
-            recognition.start();
-        } catch(e) {
-            console.error("啟動語音失敗", e);
-        }
+  if (!recognition) initSpeechRecognition();
+  if (recognition && !isListening) {
+    try {
+      recognition.start();
+    } catch (e) {
+      console.warn("啟動語音辨識失敗:", e);
     }
+  }
 }
 
 function stopRecognition() {
