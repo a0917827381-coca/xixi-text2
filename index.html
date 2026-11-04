@@ -2236,141 +2236,146 @@ function resize(){
 // ==================== 14. 語音辨識與嚴格逐字拼讀系統 ====================
 let recognition = null;
 let isListening = false;
-let listenTimeout = null;
+let isCooldown = false; // 防止同一口氣重複觸發相同字母
 
-// 字母同音字與諧音映射表 (Phonetic Map)
+// 字母同音字與抗噪擴充映射表 (包含風扇/音樂干擾下常見的氣音與短詞)
 const PHONETIC_MAP = {
-  'a': 'a', 'ay': 'a', 'eh': 'a', 'hey': 'a',
-  'b': 'b', 'bee': 'b', 'be': 'b',
-  'c': 'c', 'see': 'c', 'sea': 'c',
-  'd': 'd', 'dee': 'd',
-  'e': 'e', 'ee': 'e',
-  'f': 'f', 'ef': 'f', 'eff': 'f',
-  'g': 'g', 'gee': 'g',
-  'h': 'h', 'aitch': 'h', 'ache': 'h',
-  'i': 'i', 'eye': 'i', 'aye': 'i',
+  'a': 'a', 'ay': 'a', 'eh': 'a', 'hey': 'a', 'at': 'a', 'eight': 'a',
+  'b': 'b', 'bee': 'b', 'be': 'b', 'big': 'b', 'beat': 'b',
+  'c': 'c', 'see': 'c', 'sea': 'c', 'she': 'c', 'si': 'c', 'sweet': 'c',
+  'd': 'd', 'dee': 'd', 'the': 'd', 'de': 'd', 'deep': 'd',
+  'e': 'e', 'ee': 'e', 'he': 'e', 'eat': 'e',
+  'f': 'f', 'ef': 'f', 'eff': 'f', 'if': 'f',
+  'g': 'g', 'gee': 'g', 'ji': 'g',
+  'h': 'h', 'aitch': 'h', 'ache': 'h', 'age': 'h',
+  'i': 'i', 'eye': 'i', 'aye': 'i', 'hi': 'i',
   'j': 'j', 'jay': 'j',
-  'k': 'k', 'kay': 'k', 'okay': 'k',
-  'l': 'l', 'el': 'l', 'ell': 'l',
-  'm': 'm', 'em': 'm',
-  'n': 'n', 'en': 'n',
-  'o': 'o', 'oh': 'o', 'owe': 'o',
-  'p': 'p', 'pee': 'p', 'pea': 'p',
-  'q': 'q', 'cue': 'q', 'queue': 'q', 'cute': 'q',
-  'r': 'r', 'ar': 'r', 'are': 'r', 'our': 'r',
-  's': 's', 'es': 's', 'ess': 's',
-  't': 't', 'tee': 't', 'tea': 't',
-  'u': 'u', 'you': 'u', 'ew': 'u',
-  'v': 'v', 'vee': 'v',
-  'w': 'w', 'double u': 'w', 'double you': 'w',
-  'x': 'x', 'ex': 'x',
-  'y': 'y', 'why': 'y',
-  'z': 'z', 'zee': 'z', 'zed': 'z'
+  'k': 'k', 'kay': 'k', 'okay': 'k', 'cake': 'k',
+  'l': 'l', 'el': 'l', 'ell': 'l', 'ill': 'l',
+  'm': 'm', 'em': 'm', 'am': 'm',
+  'n': 'n', 'en': 'n', 'in': 'n', 'and': 'n', 'end': 'n',
+  'o': 'o', 'oh': 'o', 'owe': 'o', 'all': 'o', 'on': 'o',
+  'p': 'p', 'pee': 'p', 'pea': 'p', 'pay': 'p',
+  'q': 'q', 'cue': 'q', 'queue': 'q', 'cute': 'q', 'you': 'q',
+  'r': 'r', 'ar': 'r', 'are': 'r', 'our': 'r', 'art': 'r', 'arm': 'r',
+  's': 's', 'es': 's', 'ess': 's', 'is': 's', 'as': 's', 'yes': 's',
+  't': 't', 'tee': 't', 'tea': 't', 'to': 't', 'two': 't', 'team': 't',
+  'u': 'u', 'you': 'u', 'ew': 'u', 'use': 'u',
+  'v': 'v', 'vee': 'v', 'we': 'v',
+  'w': 'w', 'double u': 'w', 'double you': 'w', 'double': 'w',
+  'x': 'x', 'ex': 'x', 'eggs': 'x', 'next': 'x',
+  'y': 'y', 'why': 'y', 'white': 'y',
+  'z': 'z', 'zee': 'z', 'zed': 'z', 'the': 'z'
 };
 
-// 專用更新語音監控條的函式
-function setMicStatus(txt, col = '#ffd166') {
+// 更新畫面上的語音監控條（同時顯示在 micDebug 與原本的 msg 訊息列）
+function setMicStatus(txt, col = '#ffd166', cls = '') {
   const el = $('micDebug');
   if (el) {
     el.textContent = txt;
     el.style.color = col;
   }
+  if (cls) say(txt, cls);
 }
 
 function initSpeechRecognition() {
-  // ★ 檢查 1：是否為 HTTPS 安全連線
   if (!window.isSecureContext && location.hostname !== 'localhost') {
-    setMicStatus('❌ 失敗：手機必須使用 https:// 網址才能開啟麥克風！', '#ff5a5f');
+    setMicStatus('❌ 失敗：手機必須使用 https:// 網址才能開啟麥克風！', '#ff5a5f', 'bad');
   }
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     const mic = $('bMic');
     if (mic) {
-      mic.textContent = '⚠️ 此瀏覽器不支援語音';
+      mic.textContent = '⚠️ 瀏覽器不支援語音';
       mic.disabled = true;
     }
-    setMicStatus('❌ 失敗：此瀏覽器不支援 Web Speech API (iOS請用Safari / 安卓請用Chrome)', '#ff5a5f');
+    const kb = $('kb');
+    if (kb) kb.hidden = false;
+    setMicStatus('❌ 失敗：此瀏覽器不支援語音 (iPhone請用Safari / 安卓請用Chrome)', '#ff5a5f', 'bad');
     return;
   }
 
   recognition = new SpeechRecognition();
   recognition.lang = 'en-US';
   recognition.interimResults = true;
-  recognition.continuous = false; // 手機端設為 false 最穩定，由 onend 自動續接
+  recognition.continuous = false; // 手機端設為 false 最能抵抗電風扇長噪音卡死
+  recognition.maxAlternatives = 5; // 開啟前 5 名候選詞，撈出被風聲蓋住的正確發音
 
   recognition.onstart = () => {
     isListening = true;
     $('bMic').classList.add('active', 'jump-flash');
-    $('bMic').innerHTML = '🔴 聆聽中... (請說出字母)';
+    $('bMic').innerHTML = '🔴 聆聽中... (請短促唸出字母)';
     $('bMic').style.background = 'linear-gradient(180deg, #ff5a5f, #c92a2a)';
-    setMicStatus('🟢 麥克風已開啟！正在等待聲音輸入...', '#06d6a0');
-  };
-
-  recognition.onaudiostart = () => {
-    setMicStatus('👂 已連接手機音訊硬體，請開始發音...', '#06d6a0');
-  };
-
-  recognition.onsoundstart = () => {
-    setMicStatus('🌊 偵測到環境聲音波動...', '#7cc6fe');
+    $('bMic').style.boxShadow = '0 0 16px rgba(255, 90, 95, 0.8)';
+    setMicStatus('🟢 麥克風已開啟！請直接唸出下一個字母...', '#06d6a0');
   };
 
   recognition.onresult = (event) => {
-    if (st.over || st.pending || !st.targetWord) return;
+    if (st.over || st.pending || !st.targetWord || isCooldown) return;
+    if (st.slots.length >= st.targetWord.length) return;
 
-    let rawTranscript = '';
+    const targetLower = st.targetWord[st.slots.length].toLowerCase();
+    let allHeardWords = [];
+
+    // 1. 收集所有辨識結果與前 5 名候選詞，濾除句點與標點符號
     for (let i = event.resultIndex; i < event.results.length; ++i) {
-      rawTranscript += event.results[i][0].transcript;
+      const res = event.results[i];
+      for (let alt = 0; alt < res.length; alt++) {
+        const clean = res[alt].transcript.toLowerCase().replace(/[^a-z\s]/g, ' ').trim();
+        if (clean) {
+          allHeardWords.push(...clean.split(/\s+/));
+        }
+      }
     }
 
-    // 濾除標點符號並轉小寫
-    const cleanText = rawTranscript.toLowerCase().replace(/[^a-z\s]/g, ' ').trim();
-    const words = cleanText.split(/\s+/).filter(Boolean);
-    const latestWord = words[words.length - 1] || '';
+    if (allHeardWords.length === 0) return;
 
-    // ★ 無論有沒有對中，第一時間把原始辨識結果印在監控條上！
-    const nextTargetLetter = st.slots.length < st.targetWord.length ? st.targetWord[st.slots.length].toUpperCase() : '-';
-    setMicStatus(`🗣️ 聽到原始音：「${rawTranscript}」 ➔ 解析詞：「${latestWord}」 (目標字母: ${nextTargetLetter})`, '#ffd166');
+    // 在畫面上即時顯示手機聽到的最新幾個字
+    const latestFew = [...new Set(allHeardWords)].slice(-4).join(', ');
+    setMicStatus(`🗣️ 聽到聲音：[ ${latestFew} ] ➔ 正在找字母【${targetLower.toUpperCase()}】`, '#ffd166');
 
-    if (!latestWord) return;
-
-    // 1. 攔截整字連讀
-    if (latestWord === st.targetWord.toLowerCase() && st.targetWord.length > 1) {
-      setMicStatus(`⚠️ 聽到整字「${latestWord.toUpperCase()}」！請一個字母、一個字母分開唸！`, '#ff5a5f');
+    // 2. 攔截整字連讀
+    if (allHeardWords.includes(st.targetWord.toLowerCase()) && st.targetWord.length > 1) {
+      setMicStatus(`⚠️ 聽到整字「${st.targetWord}」！請一個字母、一個字母分開唸！`, '#ff5a5f', 'bad');
       shake();
+      restartRecognition();
       return;
     }
 
-    // 2. 寬鬆與諧音比對
-    if (st.slots.length < st.targetWord.length) {
-      const targetLower = st.targetWord[st.slots.length].toLowerCase();
-      let recognizedLetter = PHONETIC_MAP[latestWord];
+    // 3. 全句掃描濾噪：只要整串雜音中「曾經出現」目標字母，立刻判定得分！
+    let matched = false;
+    for (const w of allHeardWords) {
+      const mapped = PHONETIC_MAP[w] || (w.length === 1 ? w : null);
+      // 容許開頭字母吻合且只有 2 個字母的氣音 (例如唸 B 被風聲干擾變成 "bi")
+      const prefixMatch = (w.length === 2 && w[0] === targetLower);
 
-      // 若映射表沒中，但只有單一字母
-      if (!recognizedLetter && latestWord.length === 1 && /^[a-z]$/.test(latestWord)) {
-        recognizedLetter = latestWord;
+      if (mapped === targetLower || prefixMatch) {
+        matched = true;
+        break;
       }
-      // ★ 額外容錯：若使用者連唸 "C A T" 被黏成 "c a" 或開頭字母剛好吻合
-      if (!recognizedLetter && latestWord[0] === targetLower && latestWord.length <= 2) {
-        recognizedLetter = latestWord[0];
-      }
+    }
 
-      if (recognizedLetter === targetLower) {
-        setMicStatus(`✅ 命中字母【${recognizedLetter.toUpperCase()}】！(原始音: ${rawTranscript})`, '#06d6a0');
-        buyLetter(recognizedLetter.toUpperCase());
+    if (matched) {
+      isCooldown = true;
+      setMicStatus(`✅ 穿透雜音成功拼入：【${targetLower.toUpperCase()}】！`, '#06d6a0', 'good');
+      buyLetter(targetLower.toUpperCase());
+
+      // 4. 即時斬斷：命中後立刻切斷當次錄音並重啟，清空背景音樂與風扇累積的舊長句！
+      if (st.slots.length < st.targetWord.length) {
+        try { recognition.abort(); } catch (e) {}
       }
+      setTimeout(() => { isCooldown = false; }, 350);
     }
   };
 
   recognition.onerror = (event) => {
-    // 將真實錯誤碼直接顯示在畫面上，不再盲猜
-    if (event.error === 'no-speech') {
-      setMicStatus('⏳ 沒聽到聲音，重新待命中... 請大聲唸出字母', '#9ab5a6');
-      return;
+    if (event.error === 'no-speech' || event.error === 'aborted') {
+      return; // 忽略靜音與主動斬斷重啟的事件，保持麥克風開啟
     }
-    setMicStatus(`❌ 語音錯誤碼：[ ${event.error} ]`, '#ff5a5f');
+    setMicStatus(`❌ 語音錯誤：[ ${event.error} ]`, '#ff5a5f', 'bad');
     if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-      setMicStatus('❌ 權限遭拒 [not-allowed]：請檢查 HTTPS 網址或瀏覽器麥克風權限！', '#ff5a5f');
+      setMicStatus('⚠️ 麥克風權限被拒絕，請檢查網址是否為 https 或瀏覽器設定！', '#ff5a5f', 'bad');
       isListening = false;
       stopRecognition();
     }
@@ -2378,24 +2383,26 @@ function initSpeechRecognition() {
 
   recognition.onend = () => {
     if (isListening) {
+      // 自動無縫重啟，刷新麥克風緩衝區
       setTimeout(() => {
         if (isListening) {
           try {
             recognition.start();
           } catch (e) {}
         }
-      }, 250);
+      }, 200);
     } else {
       $('bMic').classList.remove('active', 'jump-flash');
       $('bMic').innerHTML = '🎙️ 點擊開始說話 (拼讀字母)';
       $('bMic').style.background = '';
-      setMicStatus('🎙️ 語音狀態：已停止聆聽', '#9ab5a6');
+      $('bMic').style.boxShadow = '0 4px 12px rgba(6, 214, 160, 0.4)';
+      setMicStatus('🎙️ 語音狀態：待機中', '#9ab5a6');
     }
   };
 }
 
 function startRecognition() {
-  // ★ 關鍵修復：手機端點擊麥克風時，強制切斷所有正在播放或卡住的 TTS 發音，釋放音訊硬體！
+  // 啟動麥克風前，強制切斷手機正在播放或卡住的題目發音，釋放音訊通道
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
   }
@@ -2405,10 +2412,10 @@ function startRecognition() {
   if (!recognition) initSpeechRecognition();
   if (recognition && !isListening) {
     try {
-      setMicStatus('⏳ 正在向手機請求啟動麥克風...', '#ffd166');
+      setMicStatus('⏳ 正在啟動手機麥克風...', '#ffd166');
       recognition.start();
     } catch (e) {
-      setMicStatus(`❌ 啟動例外：${e.message}`, '#ff5a5f');
+      console.warn("啟動語音辨識失敗:", e);
     }
   }
 }
@@ -2423,12 +2430,11 @@ function stopRecognition() {
 }
 
 function restartRecognition() {
-  stopRecognition();
-  setTimeout(() => {
-    startRecognition();
-  }, 250);
+  if (!recognition) return;
+  try {
+    recognition.abort(); // 強制拋棄目前的雜音緩衝區，由 onend 自動重啟
+  } catch (e) {}
 }
-
 // 修改原本的事件綁定
 
 // ==================== 12. 存檔視窗與引繼功能 ====================
