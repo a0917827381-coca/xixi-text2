@@ -677,12 +677,15 @@ summary{cursor:pointer;font-weight:900;outline:none;font-size:13.5px;color:var(-
     </div>
 
     <!-- 虛擬鍵盤與單字圖鑑 -->
-    <div style="display:flex; justify-content:center; margin-top:8px;">
+    <div style="display:flex; flex-direction:column; align-items:center; gap:6px; margin-top:8px;">
       <button class="primary" id="bMic" style="padding: 10px 24px; font-size: 16px; border-radius: 99px; box-shadow: 0 4px 12px rgba(6, 214, 160, 0.4);">
         🎙️ 點擊開始說話 (拼讀字母)
       </button>
+      <!-- ★ 獨立語音即時監控條（不會被遊戲訊息覆蓋） -->
+      <div id="micDebug" style="font-size:13px; font-weight:900; color:#ffd166; background:rgba(0,0,0,0.6); padding:4px 14px; border-radius:8px; border:1px solid rgba(255,209,102,0.4); min-height:24px; display:flex; align-items:center;">
+        🎙️ 語音狀態：待機中（請點擊上方按鈕）
       </div>
-    <div class="hint">💡 技巧：點擊輸入框旁「📖 查此字 ↓」可瞬間跳到下方字典偷看拼法，再按「⬆️ 回輸入框」一秒回來！</div>
+    </div>
 
     <details id="detailsCodex" open>
       <summary>📖 本島單字魔法圖鑑（點擊卡片聽真人發音 🔊，共 50 字）</summary>
@@ -2265,85 +2268,109 @@ const PHONETIC_MAP = {
   'z': 'z', 'zee': 'z', 'zed': 'z'
 };
 
+// 專用更新語音監控條的函式
+function setMicStatus(txt, col = '#ffd166') {
+  const el = $('micDebug');
+  if (el) {
+    el.textContent = txt;
+    el.style.color = col;
+  }
+}
+
 function initSpeechRecognition() {
+  // ★ 檢查 1：是否為 HTTPS 安全連線
+  if (!window.isSecureContext && location.hostname !== 'localhost') {
+    setMicStatus('❌ 失敗：手機必須使用 https:// 網址才能開啟麥克風！', '#ff5a5f');
+  }
+
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    console.warn("此瀏覽器不支援 Web Speech API。");
     const mic = $('bMic');
     if (mic) {
-      mic.textContent = '⚠️ 瀏覽器不支援語音';
+      mic.textContent = '⚠️ 此瀏覽器不支援語音';
       mic.disabled = true;
     }
-    const kb = $('kb');
-    if (kb) kb.hidden = false;
+    setMicStatus('❌ 失敗：此瀏覽器不支援 Web Speech API (iOS請用Safari / 安卓請用Chrome)', '#ff5a5f');
     return;
   }
 
   recognition = new SpeechRecognition();
   recognition.lang = 'en-US';
   recognition.interimResults = true;
-  recognition.continuous = true; // 保持長效監聽，避免每說一字就中斷
+  recognition.continuous = false; // 手機端設為 false 最穩定，由 onend 自動續接
 
   recognition.onstart = () => {
     isListening = true;
     $('bMic').classList.add('active', 'jump-flash');
-    $('bMic').innerHTML = '🔴 聆聽中... (請唸出字母)';
+    $('bMic').innerHTML = '🔴 聆聽中... (請說出字母)';
     $('bMic').style.background = 'linear-gradient(180deg, #ff5a5f, #c92a2a)';
-    $('bMic').style.boxShadow = '0 0 16px rgba(255, 90, 95, 0.8)';
-    say('🎙️ 麥克風已啟動，請拼讀下一個字母！', 'good');
+    setMicStatus('🟢 麥克風已開啟！正在等待聲音輸入...', '#06d6a0');
+  };
+
+  recognition.onaudiostart = () => {
+    setMicStatus('👂 已連接手機音訊硬體，請開始發音...', '#06d6a0');
+  };
+
+  recognition.onsoundstart = () => {
+    setMicStatus('🌊 偵測到環境聲音波動...', '#7cc6fe');
   };
 
   recognition.onresult = (event) => {
     if (st.over || st.pending || !st.targetWord) return;
 
-    let transcript = '';
+    let rawTranscript = '';
     for (let i = event.resultIndex; i < event.results.length; ++i) {
-      transcript += event.results[i][0].transcript;
+      rawTranscript += event.results[i][0].transcript;
     }
 
-    // ★ 關鍵修復 1：強制濾除所有標點符號（去掉句點、逗號），只留英文字母
-    const cleanText = transcript.toLowerCase().replace(/[^a-z\s]/g, ' ').trim();
-    if (!cleanText) return;
-
+    // 濾除標點符號並轉小寫
+    const cleanText = rawTranscript.toLowerCase().replace(/[^a-z\s]/g, ' ').trim();
     const words = cleanText.split(/\s+/).filter(Boolean);
-    const latestWord = words[words.length - 1];
-    if (!latestWord) return;
+    const latestWord = words[words.length - 1] || '';
 
-    // ★ 關鍵修復 2：即時在畫面上顯示手機聽到了什麼，不再盲測
-    say(`🎙️ 聽到聲音：「${latestWord}」...`);
+    // ★ 無論有沒有對中，第一時間把原始辨識結果印在監控條上！
+    const nextTargetLetter = st.slots.length < st.targetWord.length ? st.targetWord[st.slots.length].toUpperCase() : '-';
+    setMicStatus(`🗣️ 聽到原始音：「${rawTranscript}」 ➔ 解析詞：「${latestWord}」 (目標字母: ${nextTargetLetter})`, '#ffd166');
+
+    if (!latestWord) return;
 
     // 1. 攔截整字連讀
     if (latestWord === st.targetWord.toLowerCase() && st.targetWord.length > 1) {
-      say(`🔊 發音很標準！但請一個字母、一個字母拼出來！`, 'bad');
+      setMicStatus(`⚠️ 聽到整字「${latestWord.toUpperCase()}」！請一個字母、一個字母分開唸！`, '#ff5a5f');
       shake();
       return;
     }
 
-    // 2. 嚴格逐字比對
+    // 2. 寬鬆與諧音比對
     if (st.slots.length < st.targetWord.length) {
-      const nextTargetLetter = st.targetWord[st.slots.length].toLowerCase();
+      const targetLower = st.targetWord[st.slots.length].toLowerCase();
       let recognizedLetter = PHONETIC_MAP[latestWord];
 
-      if (!recognizedLetter && latestWord.length === 1 && latestWord.match(/[a-z]/)) {
+      // 若映射表沒中，但只有單一字母
+      if (!recognizedLetter && latestWord.length === 1 && /^[a-z]$/.test(latestWord)) {
         recognizedLetter = latestWord;
       }
+      // ★ 額外容錯：若使用者連唸 "C A T" 被黏成 "c a" 或開頭字母剛好吻合
+      if (!recognizedLetter && latestWord[0] === targetLower && latestWord.length <= 2) {
+        recognizedLetter = latestWord[0];
+      }
 
-      if (recognizedLetter === nextTargetLetter) {
-        say(`✨ 成功拼入：【${recognizedLetter.toUpperCase()}】！`, 'good');
+      if (recognizedLetter === targetLower) {
+        setMicStatus(`✅ 命中字母【${recognizedLetter.toUpperCase()}】！(原始音: ${rawTranscript})`, '#06d6a0');
         buyLetter(recognizedLetter.toUpperCase());
-      } else if (recognizedLetter && recognizedLetter !== nextTargetLetter) {
-        say(`聽到「${recognizedLetter.toUpperCase()}」，但目前需要【${nextTargetLetter.toUpperCase()}】`, 'bad');
       }
     }
   };
 
   recognition.onerror = (event) => {
-    console.warn('Speech recognition error:', event.error);
-    // ★ 關鍵修復 3：手機停頓產生的 no-speech 絕對不要關閉麥克風，忽略即可
-    if (event.error === 'no-speech') return;
-
+    // 將真實錯誤碼直接顯示在畫面上，不再盲猜
+    if (event.error === 'no-speech') {
+      setMicStatus('⏳ 沒聽到聲音，重新待命中... 請大聲唸出字母', '#9ab5a6');
+      return;
+    }
+    setMicStatus(`❌ 語音錯誤碼：[ ${event.error} ]`, '#ff5a5f');
     if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-      say("⚠️ 麥克風權限被拒絕，請確認手機瀏覽器權限設定！", "bad");
+      setMicStatus('❌ 權限遭拒 [not-allowed]：請檢查 HTTPS 網址或瀏覽器麥克風權限！', '#ff5a5f');
       isListening = false;
       stopRecognition();
     }
@@ -2351,53 +2378,56 @@ function initSpeechRecognition() {
 
   recognition.onend = () => {
     if (isListening) {
-      // 若非手動按停止，給予緩衝自動維持連線
       setTimeout(() => {
-        if (isListening && !isSpeaking) {
+        if (isListening) {
           try {
             recognition.start();
-          } catch (e) {
-            console.warn("重啟忽略:", e);
-          }
+          } catch (e) {}
         }
-      }, 200);
+      }, 250);
     } else {
       $('bMic').classList.remove('active', 'jump-flash');
       $('bMic').innerHTML = '🎙️ 點擊開始說話 (拼讀字母)';
       $('bMic').style.background = '';
-      $('bMic').style.boxShadow = '0 4px 12px rgba(6, 214, 160, 0.4)';
+      setMicStatus('🎙️ 語音狀態：已停止聆聽', '#9ab5a6');
     }
   };
 }
+
 function startRecognition() {
-  if (isSpeaking) return say("請等語音播放完畢再說話", "bad");
+  // ★ 關鍵修復：手機端點擊麥克風時，強制切斷所有正在播放或卡住的 TTS 發音，釋放音訊硬體！
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+  }
+  speechQueue.length = 0;
+  isSpeaking = false;
 
   if (!recognition) initSpeechRecognition();
   if (recognition && !isListening) {
     try {
+      setMicStatus('⏳ 正在向手機請求啟動麥克風...', '#ffd166');
       recognition.start();
     } catch (e) {
-      console.warn("啟動語音辨識失敗:", e);
+      setMicStatus(`❌ 啟動例外：${e.message}`, '#ff5a5f');
     }
   }
 }
 
 function stopRecognition() {
-    isListening = false;
-    if(recognition) {
-        try {
-            recognition.stop();
-        } catch(e) {}
-    }
+  isListening = false;
+  if (recognition) {
+    try {
+      recognition.stop();
+    } catch (e) {}
+  }
 }
 
 function restartRecognition() {
-    stopRecognition();
-    setTimeout(() => {
-        if(!isSpeaking) startRecognition();
-    }, 100);
+  stopRecognition();
+  setTimeout(() => {
+    startRecognition();
+  }, 250);
 }
-
 
 // 修改原本的事件綁定
 
