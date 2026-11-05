@@ -2236,10 +2236,9 @@ function resize(){
 // ==================== 14. 語音辨識與嚴格逐字拼讀系統 ====================
 let recognition = null;
 let isListening = false;
-let lastSlotIndex = -1; // ★ 改用「格子位置」當鎖，徹底廢除會算錯長度的字串游標！
-let lastMatchTime = 0;
+let lastConsumedCount = 0; // 記錄已消化掉的結果數量，確保第 2、3 個字全新比對
 
-// ★ 台灣口音＋抗風扇雜音超靈敏雷達（支援中英日韓注音同音字）
+// 台灣口音＋抗風扇雜音超靈敏雷達
 const ULTRA_LETTER_RADAR = {
   'a': ['a', 'ay', 'eh', 'hey', 'at', 'eight', '诶', '欸', '唉', 'え', 'ㄟ'],
   'b': ['b', 'bee', 'be', 'big', 'beat', 'bi', '逼', '比', '筆', '屁', '斃', 'ㄅ'],
@@ -2278,99 +2277,152 @@ function setMicStatus(txt, col = '#ffd166', cls = '') {
   if (cls) say(txt, cls);
 }
 
+// ★ 核心共用的「連續多字餵食引擎」：不管你是一次唸一個字，還是一口氣連唸 "O G"，都能依序推進第 2、第 3 格！
+function feedRecognizedText(rawStr) {
+  if (st.over || st.pending || !st.targetWord || !rawStr) return false;
+  const norm = rawStr.toLowerCase();
+  let matchedAny = false;
+
+  // 使用 while 迴圈：如果玩家連唸「O G」，會直接連續填完第 2 格與第 3 格，絕不卡在第一格！
+  let searchPos = 0;
+  while (st.slots.length < st.targetWord.length) {
+    const targetLower = st.targetWord[st.slots.length].toLowerCase();
+    const radarList = [targetLower, ...(ULTRA_LETTER_RADAR[targetLower] || [])];
+    const remainingStr = norm.slice(searchPos);
+
+    let earliestIdx = -1;
+    let matchedTokenLen = 1;
+
+    for (const token of radarList) {
+      const idx = remainingStr.indexOf(token);
+      if (idx !== -1 && (earliestIdx === -1 || idx < earliestIdx)) {
+        earliestIdx = idx;
+        matchedTokenLen = token.length;
+      }
+    }
+
+    if (earliestIdx !== -1) {
+      const matchedChar = targetLower.toUpperCase();
+      buyLetter(matchedChar);
+      matchedAny = true;
+      // 往後推進搜尋位置，繼續檢查同一句話裡有沒有下一個字母！
+      searchPos += earliestIdx + matchedTokenLen;
+    } else {
+      break;
+    }
+  }
+
+  const nextNeed = st.slots.length < st.targetWord.length ? st.targetWord[st.slots.length].toUpperCase() : '完成!';
+  if (matchedAny) {
+    setMicStatus(`✅ 連續命中！目前進度：${st.slots.join('')} ➔ 下一個請唸：【${nextNeed}】`, '#06d6a0', 'good');
+  } else {
+    setMicStatus(`🗣️ 聽到：「${rawStr.slice(-12)}」 ➔ 請唸下一個字母：【${nextNeed}】`, '#ffd166');
+  }
+  return matchedAny;
+}
+
+// ★ 建立手機系統級「不死鳥聽寫輸入框」（徹底解決瀏覽器 API 斷線問題）
+function injectNativeDictationBox() {
+  if ($('nativeVoiceInput')) return;
+  const btnMic = $('bMic');
+  if (!btnMic || !btnMic.parentElement) return;
+
+  const wrap = btnMic.parentElement;
+  wrap.style.flexDirection = 'column';
+  wrap.style.gap = '8px';
+
+  const input = document.createElement('input');
+  input.id = 'nativeVoiceInput';
+  input.type = 'text';
+  input.placeholder = '👉 點此用「手機鍵盤麥克風」無限連唸 (抗風扇/不斷線)';
+  input.autocomplete = 'off';
+  input.autocorrect = 'off';
+  input.autocapitalize = 'off';
+  input.spellcheck = false;
+  input.style.cssText = 'width:100%; max-width:340px; padding:10px 14px; font-size:15px; font-weight:900; border-radius:99px; border:2px solid #06d6a0; background:rgba(12,23,18,0.95); color:#ffd166; text-align:center; outline:none; box-shadow:0 4px 12px rgba(0,0,0,0.5);';
+
+  // 只要鍵盤語音聽寫吐出任何字，立刻餵給配對引擎並清空輸入框，永遠不會卡在第二個字！
+  input.addEventListener('input', () => {
+    const val = input.value;
+    if (val) {
+      if (feedRecognizedText(val)) {
+        input.value = ''; // 命中後瞬間清空，準備接下一個字
+      } else if (val.length > 15) {
+        input.value = val.slice(-5);
+      }
+    }
+  });
+
+  wrap.appendChild(input);
+}
+
 function initSpeechRecognition() {
+  injectNativeDictationBox();
+
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     const mic = $('bMic');
     if (mic) {
-      mic.textContent = '⚠️ 瀏覽器不支援語音';
+      mic.textContent = '⚠️ 請直接使用下方綠色輸入框語音聽寫';
       mic.disabled = true;
     }
-    setMicStatus('❌ 此瀏覽器不支援語音 (iPhone請用Safari / 安卓請用Chrome)', '#ff5a5f', 'bad');
     return;
   }
 
   recognition = new SpeechRecognition();
-  // ★ 核心突破：改用 zh-TW (中英雙語混合模型)，對「單一短音節」的靈敏度比 en-US 高 10 倍，不會把單唸一個字母當成風扇雜音濾掉！
   recognition.lang = 'zh-TW';
   recognition.interimResults = true;
-  recognition.continuous = true;
+  // ★ 手機端設為 false，讓每個字獨立結算，並在 onend 零秒重啟！
+  recognition.continuous = false;
   recognition.maxAlternatives = 5;
 
   recognition.onstart = () => {
     isListening = true;
+    lastConsumedCount = 0;
     $('bMic').classList.add('active', 'jump-flash');
-    $('bMic').innerHTML = '🔴 極速收音中... (請直接唸出字母)';
+    $('bMic').innerHTML = '🔴 收音中... (若卡住請點下方綠色框)';
     $('bMic').style.background = 'linear-gradient(180deg, #ff5a5f, #c92a2a)';
-    $('bMic').style.boxShadow = '0 0 16px rgba(255, 90, 95, 0.8)';
-    setMicStatus('🟢 超靈敏收音已開啟！請直接唸出字母！', '#06d6a0');
   };
 
   recognition.onresult = (event) => {
     if (st.over || st.pending || !st.targetWord) return;
-    if (st.slots.length >= st.targetWord.length) return;
 
-    const now = performance.now();
-    // 剛填完一個格子的 250 毫秒內先忽略殘音，之後立刻開放填下一格！
-    if (now - lastMatchTime < 250) return;
-
-    // ★ 只看「最新一句話 (event.resultIndex)」的最後 8 個字元，完全不用 processedLength 游標，永不卡死！
-    let recentText = '';
-    let displayRaw = '';
-    const latestIdx = event.results.length - 1;
-    const latestRes = event.results[latestIdx];
-    displayRaw = latestRes[0].transcript.trim().slice(-10);
-
-    for (let alt = 0; alt < latestRes.length; alt++) {
-      // 只取每個候選詞最後面最新講出來的 12 個字元，前面的舊字自動淘汰
-      recentText += ' ' + latestRes[alt].transcript.trim().slice(-12);
-    }
-
-    const norm = recentText.toLowerCase();
-    const targetLower = st.targetWord[st.slots.length].toLowerCase();
-    const radarList = ULTRA_LETTER_RADAR[targetLower] || [targetLower];
-
-    setMicStatus(`🗣️ 聽到：「${displayRaw}」 ➔ 正在找第 ${st.slots.length + 1} 個字母：【${targetLower.toUpperCase()}】`, '#ffd166');
-
-    let isHit = false;
-
-    // 1. 直接子字串掃描：不管有沒有空格，只要最新這幾個字元裡「包含」目標字母或諧音，直接命中！
-    // 例如唸 O G 被黏成 "og" 或 "喔居"，或者在風扇聲中唸出 "see"
-    if (norm.includes(targetLower)) {
-      isHit = true;
-    } else {
-      for (const token of radarList) {
-        if (norm.includes(token)) {
-          isHit = true;
-          break;
-        }
+    let combined = '';
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      const res = event.results[i];
+      for (let alt = 0; alt < res.length; alt++) {
+        combined += ' ' + res[alt].transcript;
       }
     }
 
-    if (isHit) {
-      lastMatchTime = now;
-      const matchedChar = targetLower.toUpperCase();
-      setMicStatus(`✅ 命中第 ${st.slots.length + 1} 格：【${matchedChar}】！(聽到: ${displayRaw})`, '#06d6a0', 'good');
-      buyLetter(matchedChar);
+    if (feedRecognizedText(combined)) {
+      // ★ 命中第一個字後，立刻結束這一回合，強迫系統觸發 onend 開啟乾淨的第二回合！
+      try { recognition.stop(); } catch (e) {}
     }
   };
 
   recognition.onerror = (event) => {
-    if (event.error === 'no-speech') return;
+    if (event.error === 'no-speech' || event.error === 'aborted') return;
     if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-      setMicStatus('⚠️ 麥克風權限被拒，請檢查瀏覽器權限！', '#ff5a5f', 'bad');
       isListening = false;
-      stopRecognition();
+      setMicStatus('⚠️ 網頁麥克風被系統限制，請點下方「綠色輸入框」用手機鍵盤麥克風！', '#ff5a5f', 'bad');
     }
   };
 
   recognition.onend = () => {
+    // ★ 關鍵突破：零延遲（不用 setTimeout）直接在 onend 同步重啟！若被手機擋下，立刻提示玩家改點一下或用下方綠色框！
+    if (isListening && !st.pending && !st.over) {
+      try {
+        recognition.start();
+        return;
+      } catch (e) {
+        // 如果手機還是阻擋自動重啟，退回待機狀態
+      }
+    }
     isListening = false;
     $('bMic').classList.remove('active', 'jump-flash');
-    $('bMic').innerHTML = '🎙️ 點擊開始說話 (拼讀字母)';
+    $('bMic').innerHTML = '🎙️ 點擊說下一個字 (或點下方綠框連講)';
     $('bMic').style.background = '';
-    $('bMic').style.boxShadow = '0 4px 12px rgba(6, 214, 160, 0.4)';
-    setMicStatus('⏸️ 麥克風已休息，請點一下按鈕繼續說話', '#9ab5a6');
   };
 }
 
@@ -2386,8 +2438,10 @@ function startRecognition() {
     try {
       recognition.start();
     } catch (e) {
-      initSpeechRecognition();
-      try { recognition.start(); } catch (err) {}
+      try {
+        recognition.stop();
+        setTimeout(() => recognition.start(), 50);
+      } catch (err) {}
     }
   }
 }
@@ -2402,7 +2456,7 @@ function stopRecognition() {
 }
 
 function restartRecognition() {
-  lastMatchTime = performance.now();
+  stopRecognition();
 }
 // 修改原本的事件綁定
 
