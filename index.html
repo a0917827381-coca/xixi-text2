@@ -683,6 +683,8 @@ summary{cursor:pointer;font-weight:900;outline:none;font-size:13.5px;color:var(-
       </div>
     </div>
 
+    <!-- 單字圖鑑 -->
+
     <details id="detailsCodex" open>
       <summary>📖 本島單字魔法圖鑑（點擊卡片聽真人發音 🔊，共 50 字）</summary>
       <!-- 懸浮於圖鑑右上角的半透明白色回跳按鈕 -->
@@ -740,49 +742,49 @@ summary{cursor:pointer;font-weight:900;outline:none;font-size:13.5px;color:var(-
 </div>
 
 <script>
-// ==================== 1. 6 大島嶼基本資料設定 ====================
+// ==================== 1. 6 大島嶼基本資料設定 (8×6 大網格精簡路線) ====================
 const ISLANDS = [
   {
     id:0, name:'萌寵森林', eng:'Pet Forest', icon:'🌲',
     desc:'北台灣溫帶森林，棲息著溫馴動物與林間守護者。',
     x: 52, y: 13, cardDir: 'to-right',
     board:'#15291e', dirt:'#4f3f2c', line:'#2d4f3c', tile:'#f2c94c',
-    wp:[[-1,1],[3,1],[3,8],[7,8],[7,2],[10,2],[10,8],[12,8]]
+    wp:[[-1,1],[2,1],[2,4],[5,4],[5,2],[8,2]]
   },
   {
     id:1, name:'深海奇航', eng:'Ocean Odyssey', icon:'🌊',
     desc:'花蓮外海太平洋海域，面對海盜加農砲與深海巨怪。',
     x: 73, y: 28, cardDir: 'to-left',
     board:'#0a202e', dirt:'#1c475c', line:'#1d526b', tile:'#00f2fe',
-    wp:[[-1,1],[10,1],[10,8],[2,8],[2,4],[7,4],[7,5],[12,5]]
+    wp:[[-1,1],[6,1],[6,4],[2,4],[2,2],[8,2]]
   },
   {
     id:2, name:'冰原城堡', eng:'Frozen Kingdom', icon:'❄️',
     desc:'雪山與合歡山極地凍土，禦寒建築與冰霜魔法之境。',
     x: 46, y: 41, cardDir: 'to-left',
     board:'#122338', dirt:'#2e4c6d', line:'#3c5f87', tile:'#7cc6fe',
-    wp:[[-1,1],[4,1],[4,4],[8,4],[8,7],[3,7],[3,9],[12,9]]
+    wp:[[-1,1],[3,1],[3,3],[5,3],[5,4],[8,4]]
   },
   {
     id:3, name:'熔岩地底', eng:'Molten Underground', icon:'🌋',
     desc:'嘉南平原深淵裂谷，蘊藏重金屬鍛造與地底巨龍之力。',
     x: 24, y: 56, cardDir: 'to-right',
     board:'#210f0f', dirt:'#4a1d1d', line:'#632626', tile:'#ff5722',
-    wp:[[-1,2],[3,2],[3,7],[6,7],[6,1],[9,1],[9,8],[12,8]]
+    wp:[[-1,2],[2,2],[2,4],[4,4],[4,1],[6,1],[6,4],[8,4]]
   },
   {
     id:4, name:'天空神殿', eng:'Sky Temple', icon:'⚡',
     desc:'台東雲海之上的神聖聖域，充盈著雷霆審判與光明光束。',
     x: 70, y: 68, cardDir: 'to-left',
     board:'#192740', dirt:'#384d73', line:'#4b6796', tile:'#ffd166',
-    wp:[[-1,5],[5,5],[5,1],[7,1],[7,8],[9,8],[9,5],[12,5]]
+    wp:[[-1,3],[3,3],[3,1],[5,1],[5,4],[8,4]]
   },
   {
     id:5, name:'星際太空', eng:'Cosmic Galaxy', icon:'🚀',
     desc:'恆春半島南端太空哨站，以軌道重力與光線粉碎外敵。',
     x: 44, y: 88, cardDir: 'to-right',
     board:'#0b0d1c', dirt:'#1e2247', line:'#31376e', tile:'#c084fc',
-    wp:[[-1,2],[8,2],[8,7],[3,7],[3,4],[10,4],[10,8],[12,8]]
+    wp:[[-1,1],[5,1],[5,4],[2,4],[2,3],[8,3]]
   }
 ];
 
@@ -827,7 +829,7 @@ const WORLD_SPECS = RAW_WORDS.map(raw => {
     if(fx === 'ring'){ slow = 0.5; dmg *= 0.5; }
     if(fx === 'chain'){ dmg *= 0.75; }
 
-    dict[w] = { zh, fx, dmg:Math.round(dmg), rng, rate, aoe, slow, dps, dur:2.5, jumps: len>=6?5:3 };
+    dict[w] = { zh, fx, dmg:Math.round(dmg), rng: +(rng / 1.5).toFixed(2), rate, aoe: +(aoe / 1.5).toFixed(2), slow, dps, dur:2.5, jumps: len>=6?5:3 };
   });
   return dict;
 });
@@ -949,8 +951,8 @@ function loadGameProgress(){
   }
 }
 
-// ==================== 5. 遊戲全域狀態與粒子引擎 ====================
-const COLS = 12, ROWS = 10;
+// ==================== 5. 遊戲全域狀態與粒子引擎 (8×6 放大 1.5 倍配置) ====================
+const COLS = 8, ROWS = 6;
 let cv, ctx, CS = 50, DPR = 1;
 let hoverCell = null;
 let decorMap = [];
@@ -1130,16 +1132,18 @@ function enterIsland(id, carryoverGold = 60){
     st.hp = saved.hp;
     st.kills = saved.kills;
     st.built = new Set(saved.built || []);
-    st.towers = saved.towers.map(t => ({
-      w: t.w, s: dict[t.w] || Object.values(dict)[0],
-      x: t.x, y: t.y, star: t.star||1, cd:0, recoil:0
-    }));
+    st.towers = saved.towers
+      .filter(t => t.x >= 0 && t.x < COLS && t.y >= 0 && t.y < ROWS && !isPath(t.x, t.y))
+      .map(t => ({
+        w: t.w, s: dict[t.w] || Object.values(dict)[0],
+        x: t.x, y: t.y, star: t.star||1, cd:0, recoil:0
+      }));
     say(`已還原【${isl.name}】的存檔陣容！第 ${st.wave} 波待命！`, 'good');
   } else {
     st.wave = 0; st.hp = 20; st.gold = carryoverGold; st.kills = 0;
     st.built.clear();
     const firstWord = Object.keys(dict)[0];
-    let initX = 2, initY = 3;
+    let initX = 1, initY = 2;
     if(isPath(initX, initY)){
       for(let y=1; y<ROWS-1; y++){
         for(let x=1; x<COLS-1; x++){
@@ -1304,11 +1308,14 @@ function submitWord(){
   }
 
   const s = dict[w];
+  // ★ 單字拼對成功瞬間，自動關閉語音輸入，把音訊通道交還給喇叭發音！
+  if(isListening) stopRecognition();
+
   let bonusAwarded = false;
   if(w === st.targetWord && !st.backspaced){
     st.gold += 10;
     bonusAwarded = true;
-    fx({ type:'txt', x:6, y:3.5, txt:'⚡ 一發入魂 +10金幣!', col:'#ffd166', life:1.3 });
+    fx({ type:'txt', x:COLS/2, y:ROWS/2 - 0.5, txt:'⚡ 一發入魂 +10金幣!', col:'#ffd166', life:1.3 });
     say(`✨ 完美一發入魂！獲得額外獎勵 +10 金幣！`, 'good');
   } else {
     say(`【${w}】召喚成功！點擊草地立即建造魔法戰塔！`, 'good');
@@ -1341,7 +1348,7 @@ function clickCell(x, y){
         spawnParticles(x+0.5, y+0.5, '#ffd166', 26, 3.4);
         fx({ type:'ring', x:x+0.5, y:y+0.5, col:'#ffd166', life:0.45 });
         fx({ type:'txt', x:x+0.5, y:y+0.4, txt:`★${exist.star} 升星強化!`, col:'#ffd166', life:1.2 });
-        fx({ type:'spawn_range', x:x+0.5, y:y+0.5, rng:exist.s.rng||2.4, life:0.55 });
+        fx({ type:'spawn_range', x:x+0.5, y:y+0.5, rng:exist.s.rng||1.6, life:0.55 });
         say(`✨【${exist.w}】進化為 ★${exist.star} 星戰塔！威力大幅提升！`, 'good');
         st.pending = null; hoverCell = null;
         pickPrompt(); ui(); saveGameProgress();
@@ -1353,7 +1360,7 @@ function clickCell(x, y){
         st.towers.push({ w:st.pending.w, s:st.pending.s, x, y, star:1, cd:0, recoil:0.8 });
         spawnParticles(x+0.5, y+0.5, '#06d6a0', 18, 2.5);
         fx({ type:'txt', x:x+0.5, y:y+0.5, txt:`替換 +${refund}金`, col:'#ffd166', life:1.0 });
-        fx({ type:'spawn_range', x:x+0.5, y:y+0.5, rng:st.pending.s.rng||2.4, life:0.55 });
+        fx({ type:'spawn_range', x:x+0.5, y:y+0.5, rng:st.pending.s.rng||1.6, life:0.55 });
         say(`覆蓋替換！退還舊塔 ${refund} 金幣`, 'good');
         st.pending = null; hoverCell = null;
         pickPrompt(); ui(); saveGameProgress();
@@ -1362,7 +1369,7 @@ function clickCell(x, y){
     }
 
     spawnParticles(x+0.5, y+0.5, '#7ed6a0', 20, 2.8);
-    fx({ type:'spawn_range', x:x+0.5, y:y+0.5, rng:st.pending.s.rng||2.4, life:0.55 });
+    fx({ type:'spawn_range', x:x+0.5, y:y+0.5, rng:st.pending.s.rng||1.6, life:0.55 });
     st.towers.push({ w:st.pending.w, s:st.pending.s, x, y, star:1, cd:0, recoil:0.8 });
     say(`✨【${st.pending.w}】魔法戰塔建造完成！`, 'good');
     st.pending = null; hoverCell = null;
@@ -1435,11 +1442,11 @@ function startWave(){
 function spawnEnemy(type){
   const base = 60 * Math.pow(1.12, st.wave - 1);
   const startPos = posAt(0);
-  const e = { d:0, type, slowF:1, slowT:0, dot:0, dotT:0, x:startPos.x, y:startPos.y, spd:1.1, hp:base, rew:3, hitFlash:0 };
-  if(type === 'fast'){ e.spd = 1.85; e.hp = base * 0.65; e.rew = 3; }
+  const e = { d:0, type, slowF:1, slowT:0, dot:0, dotT:0, x:startPos.x, y:startPos.y, spd:0.72, hp:base, rew:3, hitFlash:0 };
+  if(type === 'fast'){ e.spd = 1.2; e.hp = base * 0.65; e.rew = 3; }
   if(type === 'boss'){
     const isWorldBoss = (st.wave === 30);
-    e.spd = 0.55; e.hp = base * (isWorldBoss ? 16 : 8); e.rew = isWorldBoss ? 60 : 25;
+    e.spd = 0.38; e.hp = base * (isWorldBoss ? 16 : 8); e.rew = isWorldBoss ? 60 : 25;
   }
   e.max = e.hp;
   st.enemies.push(e);
@@ -1455,7 +1462,7 @@ function fireTowerFx(t, c, tg){
   spawnParticles(tg.x, tg.y, pal.glow, 6, 1.8);
 
   if(fxType === 'beam') fx({ type:'beam', x:c.x, y:c.y, x2:tg.x, y2:tg.y, col:'#00f2fe', life:0.26 });
-  else if(fxType === 'bomb'){ addShake(4); fx({ type:'bomb', x:c.x, y:c.y, x2:tg.x, y2:tg.y, col:'#ff5722', aoe:t.s.aoe||1.2, life:0.36 }); }
+  else if(fxType === 'bomb'){ addShake(4); fx({ type:'bomb', x:c.x, y:c.y, x2:tg.x, y2:tg.y, col:'#ff5722', aoe:t.s.aoe||0.8, life:0.36 }); }
   else if(fxType === 'breath'){ addShake(t.w.length>=6?6:2.5); fx({ type:'breath', x:c.x, y:c.y, x2:tg.x, y2:tg.y, col:'#ff3b30', life:0.34 }); }
   else if(fxType === 'slash'){ if(t.w.length>=6) addShake(5); fx({ type:'slash', x2:tg.x, y2:tg.y, col:'#ff2a5f', life:0.3 }); }
   else if(fxType === 'chain'){ addShake(2.5); fx({ type:'chain', x:c.x, y:c.y, x2:tg.x, y2:tg.y, col:'#c084fc', life:0.28 }); }
@@ -1493,7 +1500,7 @@ function update(dt, dtReal){
       if(st.spawnLeft === 1 && st.isBoss){
         st.spawnT = 2.0;
         addShake(12);
-        fx({ type:'txt', x:6, y:3.5, txt:'⚠️ 警報！魔王即將降臨！', col:'#ff3b30', life:2.0 });
+        fx({ type:'txt', x:COLS/2, y:ROWS/2 - 0.5, txt:'⚠️ 警報！魔王即將降臨！', col:'#ff3b30', life:2.0 });
         say('⚠️ 警報！魔王即將降臨～請集中火力！', 'bad');
       }
 
@@ -1709,7 +1716,7 @@ function draw(){
   ctx.textAlign = 'center'; ctx.fillText('深淵入口', startX, startY + CS*0.42);
 
   const endY = (isl.wp[isl.wp.length - 1][1] + 0.5) * CS;
-  const endX = CS * 11.48;
+  const endX = CS * (COLS - 0.52);
   ctx.save();
   ctx.translate(endX, endY);
   const cryGlow = ctx.createRadialGradient(0,0,2, 0,0,CS*0.48);
@@ -1955,7 +1962,7 @@ function draw(){
   if(st.pending && hoverCell){
     const cx = (hoverCell.x + 0.5) * CS;
     const cy = (hoverCell.y + 0.5) * CS;
-    const rng = (st.pending.s.rng || 2.4) * CS;
+    const rng = (st.pending.s.rng || 1.6) * CS;
 
     ctx.save();
     ctx.fillStyle = isPath(hoverCell.x, hoverCell.y) ? 'rgba(255,90,95,0.35)' : 'rgba(6,214,160,0.28)';
@@ -1976,7 +1983,7 @@ function draw(){
   if(st.sel){
     const cx = (st.sel.x + 0.5) * CS;
     const cy = (st.sel.y + 0.5) * CS;
-    const rng = (st.sel.s.rng || 2.4) * CS;
+    const rng = (st.sel.s.rng || 1.6) * CS;
     ctx.save();
     ctx.setLineDash([6, 5]);
     ctx.strokeStyle = 'rgba(255, 209, 102, 0.9)';
@@ -2014,7 +2021,7 @@ function renderEnhancedFx(f){
   switch(f.type){
     case 'spawn_range':{
       const ease = Math.sin(p * Math.PI * 0.5);
-      const rCur = (f.rng || 2.4) * CS * (0.35 + 0.65 * ease);
+      const rCur = (f.rng || 1.6) * CS * (0.35 + 0.65 * ease);
       ctx.setLineDash([7, 6]);
       ctx.strokeStyle = `rgba(255, 107, 91, ${0.9 * a})`;
       ctx.lineWidth = 2.5;
@@ -2038,7 +2045,7 @@ function renderEnhancedFx(f){
         ctx.fillStyle = f.col; ctx.beginPath(); ctx.arc(px*CS, py*CS, CS*0.22, 0, Math.PI*2); ctx.fill();
         ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(px*CS, py*CS, CS*0.1, 0, Math.PI*2); ctx.fill();
       } else {
-        const ep = (p-0.65)/0.35, rad = (f.aoe||1.2) * CS * ep * 1.3;
+        const ep = (p-0.65)/0.35, rad = (f.aoe||0.8) * CS * ep * 1.3;
         ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4 * (1-ep);
         ctx.beginPath(); ctx.arc(f.x2*CS, f.y2*CS, rad, 0, Math.PI*2); ctx.stroke();
         ctx.fillStyle = f.col; ctx.beginPath(); ctx.arc(f.x2*CS, f.y2*CS, rad*0.8, 0, Math.PI*2); ctx.fill();
@@ -2208,11 +2215,10 @@ function ui(){
     pEl.innerHTML = `⏳ 戰備狀態 (可從容部署戰塔)`;
   }
 
-  const cost = getLetterCost(len);
-  
   $('bSubmit').disabled = st.over || !!st.pending || st.slots.length < len;
   $('bClear').disabled = st.over || !!st.pending || st.slots.length <= 1;
   $('bWave').disabled = st.inWave || st.over;
+  $('bWave').textContent = st.inWave ? '⚔️ 交戰中...' : `開始第 ${st.wave+1} 波 ⚔️</button>`;
   $('bWave').textContent = st.inWave ? '⚔️ 交戰中...' : `開始第 ${st.wave+1} 波 ⚔️`;
 
   $('pendWrap').hidden = !st.pending;
@@ -2289,7 +2295,7 @@ function initSpeechRecognition() {
   recognition = new SpeechRecognition();
   recognition.lang = 'zh-TW';
   recognition.interimResults = true;
-  recognition.continuous = true; // ★ 保持長連線，絕對不在中途呼叫 stop()！
+  recognition.continuous = true; // ★ 保持長連線，直到拼對單字時自動關閉！
   recognition.maxAlternatives = 5;
 
   recognition.onstart = () => {
@@ -2349,6 +2355,12 @@ function initSpeechRecognition() {
       }
     }
 
+    // 若已經觸發 submitWord()，此時 st.pending 會被設定且麥克風已自動關閉
+    if (st.pending) {
+      setMicStatus(`🎉 拼字成功！已自動關閉語音並朗讀單字`, '#06d6a0');
+      return;
+    }
+
     const nextNeed = st.slots.length < st.targetWord.length ? st.targetWord[st.slots.length].toUpperCase() : '完成!';
     if (matchedAny) {
       setMicStatus(`✅ 命中！目前進度：${st.slots.join('')} ➔ 下一個請唸：【${nextNeed}】`, '#06d6a0', 'good');
@@ -2366,8 +2378,8 @@ function initSpeechRecognition() {
   };
 
   recognition.onend = () => {
-    // 如果玩家沒有按關閉，且還在遊戲中，嘗試零延遲自動續接！
-    if (isListening && !st.over) {
+    // 如果玩家沒有按關閉，且還沒拼完單字，嘗試零延遲自動續接！
+    if (isListening && !st.over && !st.pending) {
       try {
         recognition.start();
         return;
@@ -2377,8 +2389,10 @@ function initSpeechRecognition() {
     $('bMic').classList.remove('active', 'jump-flash');
     $('bMic').innerHTML = '🎙️ 點擊開始說話';
     $('bMic').style.background = '';
-    $('bMic').style.boxShadow = '0 4px 12px rgba(6, 214, 160, 0.4)';
-    setMicStatus('⏸️ 麥克風已休眠，請點上方按鈕繼續說話', '#9ab5a6');
+    $('bMic').style.boxShadow = '0 3px 10px rgba(6, 214, 160, 0.35)';
+    if (!st.pending) {
+      setMicStatus('⏸️ 麥克風已休眠，請點上方按鈕繼續說話', '#9ab5a6');
+    }
   };
 }
 
@@ -2413,7 +2427,6 @@ function stopRecognition() {
 function restartRecognition() {
   processedMap.clear();
 }
-// 修改原本的事件綁定
 
 // ==================== 12. 存檔視窗與引繼功能 ====================
 function openSaveModal(){
@@ -2479,10 +2492,8 @@ window.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('dblclick', e => e.preventDefault());
 
   cv = $('cv'); ctx = cv.getContext('2d');
-    initSpeechRecognition();
-  
-  
-  
+  initSpeechRecognition();
+
   const btnMic = $('bMic');
   btnMic.onclick = (e) => {
     e.preventDefault();
@@ -2492,7 +2503,6 @@ window.addEventListener('DOMContentLoaded', () => {
       startRecognition();
     }
   };
-
 
   const saved = loadGameProgress();
   renderTaiwanMap();
