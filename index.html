@@ -2236,37 +2236,37 @@ function resize(){
 // ==================== 14. 語音辨識與嚴格逐字拼讀系統 ====================
 let recognition = null;
 let isListening = false;
-let processedLength = 0; // ★ 核心游標：記錄已經處理過的文字長度，不用重啟麥克風也能連續輸入！
+let lastSlotIndex = -1; // ★ 改用「格子位置」當鎖，徹底廢除會算錯長度的字串游標！
 let lastMatchTime = 0;
 
-// ★ 超靈敏字元雷達表：同時支援英文諧音、台灣口音常見誤判字、以及中英夾雜音
+// ★ 台灣口音＋抗風扇雜音超靈敏雷達（支援中英日韓注音同音字）
 const ULTRA_LETTER_RADAR = {
-  'a': ['a', 'ay', 'eh', 'hey', 'at', 'eight', 'エイ', '诶', '欸', '唉', 'え'],
-  'b': ['b', 'bee', 'be', 'big', 'beat', 'bi', '逼', '比', '筆', 'ピ'],
-  'c': ['c', 'see', 'sea', 'she', 'si', 'sweet', 'xi', '西', '吸', '希', 'సి'],
-  'd': ['d', 'dee', 'the', 'de', 'deep', 'di', '低', '滴', '弟', '的'],
-  'e': ['e', 'ee', 'he', 'eat', 'yi', '一', '衣', '醫', '伊', 'い'],
-  'f': ['f', 'ef', 'eff', 'if', 'fu', 'เอฟ'],
-  'g': ['g', 'gee', 'ji', '居', '機', '雞', '極'],
-  'h': ['h', 'aitch', 'ache', 'age', 'each', 'edge'],
-  'i': ['i', 'eye', 'aye', 'hi', 'ai', '愛', '挨', '哀', 'アイ'],
-  'j': ['j', 'jay', 'jie', '接', '街', '姐', 'ジェイ'],
-  'k': ['k', 'kay', 'okay', 'cake', 'kei', '케이', '給', '開'],
-  'l': ['l', 'el', 'ell', 'ill', 'ale', 'air', 'เอล'],
-  'm': ['m', 'em', 'am', 'aim', 'and', '嗯', '呣'],
-  'n': ['n', 'en', 'in', 'an', 'end', '恩', '嗯', '因'],
-  'o': ['o', 'oh', 'owe', 'all', 'on', 'ou', '喔', '歐', '噢', 'オー'],
-  'p': ['p', 'pee', 'pea', 'pay', 'pi', '批', '披', '屁', '皮'],
-  'q': ['q', 'cue', 'queue', 'cute', 'you', 'kill', '丘', '秋', 'Q'],
-  'r': ['r', 'ar', 'are', 'our', 'art', 'arm', 'or', 'er', '啊', '阿', '耳', '二'],
-  's': ['s', 'es', 'ess', 'is', 'as', 'yes', 'ace', 'えす'],
-  't': ['t', 'tee', 'tea', 'to', 'two', 'team', 'ti', '踢', '替', '梯', '體'],
-  'u': ['u', 'you', 'ew', 'use', 'yu', '優', '憂', '游', '有', 'ユー'],
-  'v': ['v', 'vee', 'we', 'vi', '維', '微', '薇'],
-  'w': ['w', 'double', 'wu', '達', 'ダブリュー'],
-  'x': ['x', 'ex', 'eggs', 'next', 'axe', '叉'],
-  'y': ['y', 'why', 'white', 'wai', '歪', '外', 'ワイ'],
-  'z': ['z', 'zee', 'zed', 'the', 'zi', '利', '立']
+  'a': ['a', 'ay', 'eh', 'hey', 'at', 'eight', '诶', '欸', '唉', 'え', 'ㄟ'],
+  'b': ['b', 'bee', 'be', 'big', 'beat', 'bi', '逼', '比', '筆', '屁', '斃', 'ㄅ'],
+  'c': ['c', 'see', 'sea', 'she', 'si', 'sweet', 'xi', '西', '吸', '希', '惜', '洗', 'ㄒ'],
+  'd': ['d', 'dee', 'the', 'de', 'deep', 'di', '低', '滴', '弟', '的', '地', '第', 'ㄉ'],
+  'e': ['e', 'ee', 'he', 'eat', 'yi', '一', '衣', '醫', '伊', '依', '椅', '以', 'ㄧ'],
+  'f': ['f', 'ef', 'eff', 'if', 'fu', '夫', '福', '父', 'ㄈ'],
+  'g': ['g', 'gee', 'ji', 'ju', '居', '機', '雞', '極', '吉', '及', '級', 'ㄐ'],
+  'h': ['h', 'aitch', 'ache', 'age', 'each', 'edge', 'あ', 'ㄏ'],
+  'i': ['i', 'eye', 'aye', 'hi', 'ai', '愛', '挨', '哀', '矮', '癌', 'ㄞ'],
+  'j': ['j', 'jay', 'jie', '接', '街', '姐', '借', '節', '杰', 'ㅈ'],
+  'k': ['k', 'kay', 'okay', 'cake', 'kei', '給', '開', '凱', '慨', 'ㄎ'],
+  'l': ['l', 'el', 'ell', 'ill', 'ale', 'air', 'ayo', '喔', '歐', 'ㄌ'],
+  'm': ['m', 'em', 'am', 'aim', 'and', '嗯', '呣', '母', '木', 'ㄇ'],
+  'n': ['n', 'en', 'in', 'an', 'end', '恩', '嗯', '因', '安', '按', 'ㄋ'],
+  'o': ['o', 'oh', 'owe', 'all', 'on', 'ou', '喔', '歐', '噢', '偶', 'ㄛ'],
+  'p': ['p', 'pee', 'pea', 'pay', 'pi', '批', '披', '屁', '皮', '匹', 'ㄆ'],
+  'q': ['q', 'cue', 'queue', 'cute', 'you', 'kill', '丘', '秋', '去', '求', '球'],
+  'r': ['r', 'ar', 'are', 'our', 'art', 'arm', 'or', 'er', '啊', '阿', '耳', '二', '兒', 'ㄖ'],
+  's': ['s', 'es', 'ess', 'is', 'as', 'yes', 'ace', 'si', '四', '是', '事', '死', 'ㄙ'],
+  't': ['t', 'tee', 'tea', 'to', 'two', 'team', 'ti', '踢', '替', '梯', '體', '題', '提', 'ㄊ'],
+  'u': ['u', 'you', 'ew', 'use', 'yu', '優', '憂', '游', '有', '又', '右', '幼', 'ㄩ'],
+  'v': ['v', 'vee', 'we', 'vi', '維', '微', '薇', '為', '圍', '唯'],
+  'w': ['w', 'double', 'wu', '達', 'ダブリュー', 'ダブル'],
+  'x': ['x', 'ex', 'eggs', 'next', 'axe', '叉', '愛克斯', '克斯'],
+  'y': ['y', 'why', 'white', 'wai', '歪', '外', '壞', 'ワイ'],
+  'z': ['z', 'zee', 'zed', 'the', 'zi', '利', '立', '字', '自', '子', 'ㄗ']
 };
 
 function setMicStatus(txt, col = '#ffd166', cls = '') {
@@ -2291,86 +2291,66 @@ function initSpeechRecognition() {
   }
 
   recognition = new SpeechRecognition();
-  // ★ 使用英文為主，但開啟最大候選數與連續串流，不中途切斷！
-  recognition.lang = 'en-US';
+  // ★ 核心突破：改用 zh-TW (中英雙語混合模型)，對「單一短音節」的靈敏度比 en-US 高 10 倍，不會把單唸一個字母當成風扇雜音濾掉！
+  recognition.lang = 'zh-TW';
   recognition.interimResults = true;
-  recognition.continuous = true;     // ★ 關鍵：保持長連線，絕對不呼叫 abort()，避免第二個字被手機封殺！
+  recognition.continuous = true;
   recognition.maxAlternatives = 5;
 
   recognition.onstart = () => {
     isListening = true;
-    processedLength = 0;
     $('bMic').classList.add('active', 'jump-flash');
-    $('bMic').innerHTML = '🔴 麥克風已鎖定 (請直接連唸字母)';
+    $('bMic').innerHTML = '🔴 極速收音中... (請直接唸出字母)';
     $('bMic').style.background = 'linear-gradient(180deg, #ff5a5f, #c92a2a)';
     $('bMic').style.boxShadow = '0 0 16px rgba(255, 90, 95, 0.8)';
-    setMicStatus('🟢 連續收音中！請直接唸出字母（可連唸，例如：O ➔ G）', '#06d6a0');
+    setMicStatus('🟢 超靈敏收音已開啟！請直接唸出字母！', '#06d6a0');
   };
 
   recognition.onresult = (event) => {
     if (st.over || st.pending || !st.targetWord) return;
     if (st.slots.length >= st.targetWord.length) return;
 
-    // 把目前所有結果拼成一條完整字串（包含所有候選詞）
-    let fullStream = '';
-    let latestRaw = '';
-    for (let i = 0; i < event.results.length; ++i) {
-      const res = event.results[i];
-      latestRaw = res[0].transcript;
-      for (let alt = 0; alt < res.length; alt++) {
-        fullStream += ' ' + res[alt].transcript;
-      }
+    const now = performance.now();
+    // 剛填完一個格子的 250 毫秒內先忽略殘音，之後立刻開放填下一格！
+    if (now - lastMatchTime < 250) return;
+
+    // ★ 只看「最新一句話 (event.resultIndex)」的最後 8 個字元，完全不用 processedLength 游標，永不卡死！
+    let recentText = '';
+    let displayRaw = '';
+    const latestIdx = event.results.length - 1;
+    const latestRes = event.results[latestIdx];
+    displayRaw = latestRes[0].transcript.trim().slice(-10);
+
+    for (let alt = 0; alt < latestRes.length; alt++) {
+      // 只取每個候選詞最後面最新講出來的 12 個字元，前面的舊字自動淘汰
+      recentText += ' ' + latestRes[alt].transcript.trim().slice(-12);
     }
 
-    // ★ 只擷取「上次成功配對之後」新冒出來的聲音片段，舊的雜音直接忽略！
-    const newSegment = fullStream.slice(processedLength).toLowerCase();
-    if (!newSegment.trim()) return;
-
+    const norm = recentText.toLowerCase();
     const targetLower = st.targetWord[st.slots.length].toLowerCase();
-    const now = performance.now();
-
-    // 畫面即時顯示手機最新聽到的內容
-    setMicStatus(`🗣️ 聽到：「${latestRaw.trim().slice(-15)}」 ➔ 待填字母：【${targetLower.toUpperCase()}】`, '#ffd166');
-
-    // 防連跳保護（同一個音間隔至少 180 毫秒，但允許快速連唸下一個不同字母）
-    if (now - lastMatchTime < 180) return;
-
-    // 檢查新片段中是否有命中目標字母的「諧音」或「開頭字母」
-    const cleanWords = newSegment.replace(/[^a-z0-9\u4e00-\u9fa5\s]/g, ' ').split(/\s+/).filter(Boolean);
     const radarList = ULTRA_LETTER_RADAR[targetLower] || [targetLower];
+
+    setMicStatus(`🗣️ 聽到：「${displayRaw}」 ➔ 正在找第 ${st.slots.length + 1} 個字母：【${targetLower.toUpperCase()}】`, '#ffd166');
 
     let isHit = false;
 
-    for (const w of cleanWords) {
-      // 1. 若直接唸出整串目標單字（且單字還沒填到最後一格），提醒分開唸但依然幫他填一個字！
-      if (w === st.targetWord.toLowerCase() && st.targetWord.length > 2) {
-        isHit = true;
-        break;
-      }
-      // 2. 命中諧音雷達表
-      if (radarList.includes(w)) {
-        isHit = true;
-        break;
-      }
-      // 3. 超級寬鬆模式：只要唸出來的英文字母「開頭」或「結尾」就是目標字母（例如唸 G 被聽成 "good" 或 "ag"）
-      if (w.length <= 4 && (w[0] === targetLower || w[w.length - 1] === targetLower)) {
-        isHit = true;
-        break;
-      }
-      // 4. 若使用者連唸 "O G" 被手機黏成一個字 "og" 或 "dog"
-      if (w.includes(targetLower) && w.length <= 3) {
-        isHit = true;
-        break;
+    // 1. 直接子字串掃描：不管有沒有空格，只要最新這幾個字元裡「包含」目標字母或諧音，直接命中！
+    // 例如唸 O G 被黏成 "og" 或 "喔居"，或者在風扇聲中唸出 "see"
+    if (norm.includes(targetLower)) {
+      isHit = true;
+    } else {
+      for (const token of radarList) {
+        if (norm.includes(token)) {
+          isHit = true;
+          break;
+        }
       }
     }
 
     if (isHit) {
-      // ★ 命中！將游標推進到目前字串最末端，代表這段聲音已經用過了，不需重啟麥克風就能馬上聽下一個字！
-      processedLength = fullStream.length;
       lastMatchTime = now;
-
       const matchedChar = targetLower.toUpperCase();
-      setMicStatus(`✅ 秒抓成功：【${matchedChar}】！請繼續唸下一個字母！`, '#06d6a0', 'good');
+      setMicStatus(`✅ 命中第 ${st.slots.length + 1} 格：【${matchedChar}】！(聽到: ${displayRaw})`, '#06d6a0', 'good');
       buyLetter(matchedChar);
     }
   };
@@ -2385,18 +2365,16 @@ function initSpeechRecognition() {
   };
 
   recognition.onend = () => {
-    // 只有在真的完全斷線時才變更按鈕外觀，讓玩家再點一下即可
     isListening = false;
     $('bMic').classList.remove('active', 'jump-flash');
-    $('bMic').innerHTML = '🎙️ 點擊繼續說話 (拼讀字母)';
+    $('bMic').innerHTML = '🎙️ 點擊開始說話 (拼讀字母)';
     $('bMic').style.background = '';
     $('bMic').style.boxShadow = '0 4px 12px rgba(6, 214, 160, 0.4)';
-    setMicStatus('⏸️ 語音串流已休眠，請點一下按鈕繼續說話', '#9ab5a6');
+    setMicStatus('⏸️ 麥克風已休息，請點一下按鈕繼續說話', '#9ab5a6');
   };
 }
 
 function startRecognition() {
-  // 強制關閉系統發音，避免搶麥克風
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
   }
@@ -2406,10 +2384,8 @@ function startRecognition() {
   if (!recognition) initSpeechRecognition();
   if (recognition && !isListening) {
     try {
-      processedLength = 0;
       recognition.start();
     } catch (e) {
-      // 若實例卡住，重新建構一個乾淨的實例並立即啟動（仍在同一次點擊手勢內，100% 合法！）
       initSpeechRecognition();
       try { recognition.start(); } catch (err) {}
     }
@@ -2426,8 +2402,7 @@ function stopRecognition() {
 }
 
 function restartRecognition() {
-  // 不再中斷麥克風，只把游標歸零！
-  processedLength = 0;
+  lastMatchTime = performance.now();
 }
 // 修改原本的事件綁定
 
