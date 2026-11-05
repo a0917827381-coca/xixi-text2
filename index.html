@@ -626,7 +626,7 @@ summary{cursor:pointer;font-weight:900;outline:none;font-size:13.5px;color:var(-
       <div class="stat"><span>💀 擊破敵軍</span><b id="sKills">0</b></div>
     </div>
 
-    <!-- 拼字輸入槽與操作按鈕（附設半透明白色「查此字」懸浮跳轉鈕） -->
+    <!-- 拼字輸入槽與操作按鈕（已整合語音按鈕與狀態條至位置 2） -->
     <div class="rack" id="rackAnchor">
       <div class="slots-wrap">
         <div class="slots" id="slots"></div>
@@ -635,6 +635,13 @@ summary{cursor:pointer;font-weight:900;outline:none;font-size:13.5px;color:var(-
       <div class="rack-btns">
         <button class="primary" id="bSubmit" disabled="">召喚戰塔 ⏎</button>
         <button id="bClear" disabled="">重填</button>
+        <button class="primary" id="bMic" style="padding: 6px 12px; font-size: 12.5px; border-radius: 99px; box-shadow: 0 3px 10px rgba(6, 214, 160, 0.35);">
+          🎙️ 點擊開始說話
+        </button>
+      </div>
+      <!-- ★ 獨立語音即時監控條（跟著移上來，置於按鈕正下方） -->
+      <div id="micDebug" style="width:100%; font-size:12px; font-weight:900; color:#ffd166; background:rgba(0,0,0,0.45); padding:4px 10px; border-radius:7px; border:1px solid rgba(255,209,102,0.35); min-height:22px; display:flex; align-items:center;">
+        🎙️ 語音狀態：待機中（請點擊上方按鈕）
       </div>
     </div>
 
@@ -673,17 +680,6 @@ summary{cursor:pointer;font-weight:900;outline:none;font-size:13.5px;color:var(-
           <button class="danger" id="bRecycle">🗑️ 回收 (+<span id="recGold">0</span>金)</button>
           <button id="bDeselect">關閉</button>
         </div>
-      </div>
-    </div>
-
-    <!-- 虛擬鍵盤與單字圖鑑 -->
-    <div style="display:flex; flex-direction:column; align-items:center; gap:6px; margin-top:8px;">
-      <button class="primary" id="bMic" style="padding: 10px 24px; font-size: 16px; border-radius: 99px; box-shadow: 0 4px 12px rgba(6, 214, 160, 0.4);">
-        🎙️ 點擊開始說話 (拼讀字母)
-      </button>
-      <!-- ★ 獨立語音即時監控條（不會被遊戲訊息覆蓋） -->
-      <div id="micDebug" style="font-size:13px; font-weight:900; color:#ffd166; background:rgba(0,0,0,0.6); padding:4px 14px; border-radius:8px; border:1px solid rgba(255,209,102,0.4); min-height:24px; display:flex; align-items:center;">
-        🎙️ 語音狀態：待機中（請點擊上方按鈕）
       </div>
     </div>
 
@@ -2300,7 +2296,7 @@ function initSpeechRecognition() {
     isListening = true;
     processedMap.clear();
     $('bMic').classList.add('active', 'jump-flash');
-    $('bMic').innerHTML = '🔴 麥克風收音中 (請直接唸出字母)';
+    $('bMic').innerHTML = '🔴 收音中 (請唸字母)';
     $('bMic').style.background = 'linear-gradient(180deg, #ff5a5f, #c92a2a)';
     $('bMic').style.boxShadow = '0 0 16px rgba(255, 90, 95, 0.8)';
     const nextNeed = st.targetWord && st.slots.length < st.targetWord.length ? st.targetWord[st.slots.length].toUpperCase() : '';
@@ -2379,7 +2375,7 @@ function initSpeechRecognition() {
     }
     isListening = false;
     $('bMic').classList.remove('active', 'jump-flash');
-    $('bMic').innerHTML = '🎙️ 點擊開始說話 (拼讀字母)';
+    $('bMic').innerHTML = '🎙️ 點擊開始說話';
     $('bMic').style.background = '';
     $('bMic').style.boxShadow = '0 4px 12px rgba(6, 214, 160, 0.4)';
     setMicStatus('⏸️ 麥克風已休眠，請點上方按鈕繼續說話', '#9ab5a6');
